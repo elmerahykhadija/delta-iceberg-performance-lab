@@ -1,0 +1,29 @@
+# Data & Storage
+data/
+*.parquet
+*.csv
+*.json
+*.snappy
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+venv/
+env/
+.venv/
+.pytest_cache/
+
+# Spark & Hadoop
+spark-warehouse/
+metastore_db/
+derby.log
+logs/
+*.log
+
+# IDEs & OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

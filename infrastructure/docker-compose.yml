@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  # 1. MINIO : Notre stockage S3 local
+  minio:
+    image: bitnamilegacy/minio:2025.7.23-debian-12-r5
+    container_name: minio
+    command: minio server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password
+    ports:
+      - "9000:9000"   # API S3 utilisée par Spark
+      - "9090:9001"   # Console web (accès via localhost:9090)
+    volumes:
+      - ../data/minio:/data
+    networks:
+      - lakehouse-net
+
+  # 3. SPARK MASTER : Coordinateur enrichi avec Delta et Iceberg (via le Dockerfile)
+  spark-master:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: spark-master
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    ports:
+      - "8080:8080" # UI Spark Master
+      - "7077:7077" # Port de soumission PySpark
+    volumes:
+      - ../spark_jobs:/opt/bitnami/spark/jobs
+      - ../data:/opt/bitnami/spark/data
+    networks:
+      - lakehouse-net
+
+  # 4. SPARK WORKER : Exécuteur (Ressources limitées pour ne pas crasher ta machine)
+  spark-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: spark-worker
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=4G
+      - SPARK_WORKER_CORES=2
+    ports:
+      - "8081:8081" # UI Spark Worker
+    depends_on:
+      - spark-master
+    volumes:
+      - ../spark_jobs:/opt/bitnami/spark/jobs
+      - ../data:/opt/bitnami/spark/data
+    networks:
+      - lakehouse-net
+
+networks:
+  lakehouse-net:
+    driver: bridge
