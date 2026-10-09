@@ -168,35 +168,37 @@ sudo docker exec -it spark-master \
 sudo docker compose down
 ```
 
-## 📊 Résultats Attendus
+## 📊 Résultats du Benchmark (Analyse des Lectures)
 
-### Temps d'Écriture (Comparaison)
-```
-Format       | Durée  | Points de Contrôle
--------------|--------|--------------------
-Delta Lake   | 45s    | Oui
-Iceberg      | 55s    | Non (mais partitionné)
-```
+Après exécution du benchmark sur le jeu de données NYC Taxi (~26 millions de lignes), l'application Streamlit a généré les visualisations suivantes illustrant les écarts de performance.
 
-### Temps de Requête (Comparaison)
-```
-Opération                    | Delta Lake | Iceberg
------------------------------|------------|--------
-Lecture complète (50M rows)  | 15s        | 18s
-Agrégation (GROUP BY)        | 45s        | 35s  <-- Avantage Iceberg
-```
+### 1. Temps d'exécution moyen par Opération
+![Moyenne des temps d'exécution](imgs/bench1.png)
 
-### Avantages Observés
+**Interprétation :**
+Le graphique en barres montre clairement l'avantage d'Apache Iceberg (en orange) sur Delta Lake (en bleu) en termes de temps moyen d'exécution pour les trois opérations :
+- **Full Scan (Count)** : C'est là que l'écart est le plus spectaculaire. Iceberg met en moyenne 0.21s contre 2.04s pour Delta.
+- **Group by Passenger Count (Agrégation)** : Iceberg est plus de deux fois plus rapide (0.80s contre 1.65s).
+- **Filter VendorID = 1 (Filtre)** : L'écart est moins prononcé mais Iceberg conserve la première place (1.02s contre 1.42s).
 
-**Delta Lake :**
-- ✅ Écosystème mature
-- ✅ Bonnes performances d'ingestion
-- ✅ Points de contrôle efficaces
+### 2. Détail des Exécutions (Effet "Cold Start" vs "Warm Cache")
+![Tableau détaillé des Runs](imgs/image.png)
 
-**Apache Iceberg :**
-- ✅ Meilleur pour les requêtes analytiques complexes
-- ✅ Partitionnement automatique
-- ✅ Gestion de schéma évolutive
+**Interprétation du tableau détaillé :**
+Le tableau croisé permet d'analyser le comportement "à froid" (Run 1) et avec cache (Runs 2 et 3) :
+
+1. **Full Scan (Count)** :
+   - *Cold Start (Run 1)* : Delta prend 5.34s contre seulement 0.43s pour Iceberg. L'architecture d'Iceberg repose sur des `manifests` listant explicitement les chemins exacts des fichiers Parquet. Cela lui permet de contourner le problème des "list requests" très lentes sur le stockage objet S3/MinIO, que Delta subit de plein fouet sur sa première lecture.
+   - *Warm (Runs 2 & 3)* : Les temps chutent de manière drastique (Delta ~0.38s, Iceberg ~0.10s) car le système d'exploitation et Spark mettent en cache, mais Iceberg reste fondamentalement plus rapide pour parser ses métadonnées.
+
+2. **Filtre (Filter VendorID = 1)** :
+   - *Data Skipping* : Iceberg bat Delta sur les 3 runs (ex: Run 1 à 2.08s contre 2.57s). Iceberg maintient des statistiques (min/max) au niveau du fichier avec une forte granularité, permettant au moteur d'éliminer (pruner) plus efficacement les fichiers non pertinents avant même de devoir les décompresser.
+
+3. **Agrégation (Group by Passenger Count)** :
+   - *Scan optimisé* : Iceberg est systématiquement le "Plus Rapide 🏆". La récupération ciblée des fichiers et colonnes via le métamodèle Iceberg donne un net avantage (1.34s vs 3.09s au premier run) pour alimenter les tâches de *shuffle* et de *reduce* de Spark.
+
+**Conclusion des Lectures :**
+Apache Iceberg s'est révélé beaucoup plus optimisé pour les charges de lecture analytique sur stockage cloud/objet. Sa conception élimine le besoin de lister les répertoires, ce qui lui confère une avance redoutable par rapport à Delta Lake. *(Prochaine étape du laboratoire : évaluer les temps d'écriture massive et de MERGE/UPDATE).*
 
 ## 🛠️ Dépannage
 

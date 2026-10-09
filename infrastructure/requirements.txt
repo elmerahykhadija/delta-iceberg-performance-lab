@@ -1,8 +1,0 @@
-pyspark
-delta-spark
-Faker
-boto3
-pandas
-matplotlib
-streamlit 
-plotly

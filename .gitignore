@@ -27,3 +27,5 @@ logs/
 .idea/
 *.swp
 .DS_Store
+.venv/
+tps/
