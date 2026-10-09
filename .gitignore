@@ -29,3 +29,4 @@ logs/
 .DS_Store
 .venv/
 tps/
+__pycache__/

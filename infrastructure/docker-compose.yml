@@ -18,11 +18,11 @@ services:
       - lakehouse-net
 
   # 3. SPARK MASTER : Coordinateur enrichi avec Delta et Iceberg (via le Dockerfile)
-  spark-master:
+  spark-master-lab:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: spark-master
+    container_name: spark-master-lab
     environment:
       - SPARK_MODE=master
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
@@ -30,8 +30,8 @@ services:
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
       - SPARK_SSL_ENABLED=no
     ports:
-      - "8080:8080" # UI Spark Master
-      - "7077:7077" # Port de soumission PySpark
+      - "8082:8080" # UI Spark Master
+      - "7078:7077" # Port de soumission PySpark
     volumes:
       - ../spark_jobs:/opt/bitnami/spark/jobs
       - ../data:/opt/bitnami/spark/data
@@ -39,20 +39,20 @@ services:
       - lakehouse-net
 
   # 4. SPARK WORKER : Exécuteur (Ressources limitées pour ne pas crasher ta machine)
-  spark-worker:
+  spark-worker-lab:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: spark-worker
+    container_name: spark-worker-lab
     environment:
       - SPARK_MODE=worker
-      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_MASTER_URL=spark://spark-master-lab:7077
       - SPARK_WORKER_MEMORY=4G
       - SPARK_WORKER_CORES=2
     ports:
-      - "8081:8081" # UI Spark Worker
+      - "8083:8081" # UI Spark Worker
     depends_on:
-      - spark-master
+      - spark-master-lab
     volumes:
       - ../spark_jobs:/opt/bitnami/spark/jobs
       - ../data:/opt/bitnami/spark/data

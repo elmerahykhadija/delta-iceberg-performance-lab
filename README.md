@@ -65,8 +65,9 @@ sudo docker compose up --build -d
 # Attendre que Spark soit prêt (quelques secondes)
 sleep 10
 
-# Soumettre le script d'ingestion
-sudo docker exec -it spark-master \
+# Soumettre le script d'ingestion (venv du conteneur requis pour boto3/pandas)
+sudo docker exec -it -e PYSPARK_PYTHON=/opt/bitnami/spark/venv/bin/python3 \
+    -e PYSPARK_DRIVER_PYTHON=/opt/bitnami/spark/venv/bin/python3 spark-master-lab \
     spark-submit /opt/bitnami/spark/jobs/ingestion.py
 
 # Optionnel : Arrêter les conteneurs
@@ -76,22 +77,26 @@ sudo docker compose down
 ## 🔧 Architecture du Projet
 
 ```
-lab-spark-delta-iceberg/
-├── infrastructure/             # Configuration Docker
-│   ├── docker-compose.yml      # Orchestration des 3 conteneurs
-│   ├── Dockerfile              # Image Spark + Delta + Iceberg + S3
-│   └── requirements.txt        # Dépendances Python
+delta-iceberg-performance-lab/
+├── app.py                     # Application Streamlit (visualisation)
+├── infrastructure/            # Configuration Docker
+│   ├── docker-compose.yml     # Orchestration des 3 conteneurs
+│   ├── Dockerfile             # Image Spark + Delta + Iceberg + S3
+│   └── requirements.txt       # Dépendances Python
 │
-├── spark_jobs/                 # Scripts d'analyse
-│   ├── ingestion.py            # Script principal (Delta + Iceberg)
-│   └── query_analysis.py       # Scripts de benchmark
+├── spark_jobs/                # Scripts Spark
+│   ├── ingestion.py           # Chargement Delta + Iceberg (26,17 M lignes)
+│   ├── benchmark.py           # Benchmark : READ / FILTER / AGG / UPDATE / DELETE
+│   └── storage_analysis.py    # Métriques données vs métadonnées
 │
 ├── data/
-│   ├── source/*.parquet          # Données sources (ex: 50M lignes)
-│   └── minio/                  # Métadonnées et logs MinIO
+│   ├── source/*.parquet       # Données sources NYC Taxi
+│   ├── benchmark_results.csv  # Résultats générés par benchmark.py
+│   ├── storage_metrics.csv    # Résultats générés par storage_analysis.py
+│   └── minio/                 # Stockage objet MinIO
 │
-└── img/
-    └── architecture.png          # Schéma d'architecture
+└── imgs/
+    └── *.png                  # Visualisations du rapport
 ```
 
 ## 🎯 Objectifs du Projet
@@ -138,67 +143,74 @@ Accédez à l'interface MinIO : http://localhost:9090
 - Bucket : `deltavsicberg`
 - Dossiers : `delta/` et `iceberg/`
 
-### 5. Exécution des Benchmarks
+### 5. Exécution du Benchmark (5 opérations, 3 runs, Delta vs Iceberg)
 ```bash
-# Requêtes simples
-sudo docker exec -it spark-master \
-    spark-submit /opt/bitnami/spark/jobs/query_analysis.py \
-    --stage simple
-
-# Requêtes complexes
-sudo docker exec -it spark-master \
-    spark-submit /opt/bitnami/spark/jobs/query_analysis.py \
-    --stage complex
-
-# Tout (simple + complexe)
-sudo docker exec -it spark-master \
-    spark-submit /opt/bitnami/spark/jobs/query_analysis.py \
-    --stage all
+sudo docker exec -it spark-master-lab \
+    spark-submit /opt/bitnami/spark/jobs/benchmark.py
 ```
 
-### 6. Génération du Rapport
+> 💡 Spark doit utiliser le venv du conteneur (boto3/pandas) :
+> ```bash
+> sudo docker exec -it -e PYSPARK_PYTHON=/opt/bitnami/spark/venv/bin/python3 \
+>     -e PYSPARK_DRIVER_PYTHON=/opt/bitnami/spark/venv/bin/python3 spark-master-lab \
+>     spark-submit /opt/bitnami/spark/jobs/benchmark.py
+> ```
+
+### 6. Analyse du Stockage (données vs métadonnées)
 ```bash
-sudo docker exec -it spark-master \
-    spark-submit /opt/bitnami/spark/jobs/query_analysis.py \
-    --stage all --generate-report
+sudo docker exec spark-master-lab \
+    /opt/bitnami/spark/venv/bin/python3 /opt/bitnami/spark/jobs/storage_analysis.py
 ```
 
-### 7. Nettoyage
+### 7. Visualisation (application Streamlit)
+```bash
+cd .. && .venv/bin/streamlit run app.py
+# puis ouvrir http://localhost:8501
+```
+
+### 8. Nettoyage
 ```bash
 sudo docker compose down
 ```
 
-## 📊 Résultats du Benchmark (Analyse des Lectures)
+## 📊 Résultats du Benchmark
 
-Après exécution du benchmark sur le jeu de données NYC Taxi (~26 millions de lignes), l'application Streamlit a généré les visualisations suivantes illustrant les écarts de performance.
+Benchmark exécuté sur le jeu de données **NYC Taxi (26 173 246 lignes)**, avec le **même moteur (Spark 3.5)**, **les mêmes données**, **le même stockage objet (MinIO/S3)**, cache vidé avant chaque mesure, **3 runs par opération**. Cinq opérations sont mesurées : lecture, filtre, agrégation, **UPDATE** et **DELETE**. L'application Streamlit (`app.py`) affiche pour chacune une explication de l'opération, la comparaison Delta vs Iceberg et le vainqueur.
 
 ### 1. Temps d'exécution moyen par Opération
 ![Moyenne des temps d'exécution](imgs/bench1.png)
 
-**Interprétation :**
-Le graphique en barres montre clairement l'avantage d'Apache Iceberg (en orange) sur Delta Lake (en bleu) en termes de temps moyen d'exécution pour les trois opérations :
-- **Full Scan (Count)** : C'est là que l'écart est le plus spectaculaire. Iceberg met en moyenne 0.21s contre 2.04s pour Delta.
-- **Group by Passenger Count (Agrégation)** : Iceberg est plus de deux fois plus rapide (0.80s contre 1.65s).
-- **Filter VendorID = 1 (Filtre)** : L'écart est moins prononcé mais Iceberg conserve la première place (1.02s contre 1.42s).
+**Interprétation :** Apache Iceberg (orange) domine les trois charges de *lecture* :
+
+| Opération | Delta (moy.) | Iceberg (moy.) | Gain Iceberg |
+|---|---|---|---|
+| Full Scan (Count) | 8.74 s | 0.46 s | **19.0×** |
+| Filter VendorID = 1 | 2.33 s | 1.26 s | 1.8× |
+| Group by Passenger Count | 4.48 s | 1.58 s | 2.8× |
 
 ### 2. Détail des Exécutions (Effet "Cold Start" vs "Warm Cache")
 ![Tableau détaillé des Runs](imgs/image.png)
 
 **Interprétation du tableau détaillé :**
-Le tableau croisé permet d'analyser le comportement "à froid" (Run 1) et avec cache (Runs 2 et 3) :
+Le tableau croisé du Streamlit permet d'analyser le comportement "à froid" (Run 1) et avec cache (Runs 2 et 3) :
 
 1. **Full Scan (Count)** :
-   - *Cold Start (Run 1)* : Delta prend 5.34s contre seulement 0.43s pour Iceberg. L'architecture d'Iceberg repose sur des `manifests` listant explicitement les chemins exacts des fichiers Parquet. Cela lui permet de contourner le problème des "list requests" très lentes sur le stockage objet S3/MinIO, que Delta subit de plein fouet sur sa première lecture.
-   - *Warm (Runs 2 & 3)* : Les temps chutent de manière drastique (Delta ~0.38s, Iceberg ~0.10s) car le système d'exploitation et Spark mettent en cache, mais Iceberg reste fondamentalement plus rapide pour parser ses métadonnées.
+   - *Cold Start (Run 1)* : Delta prend **23.90 s** contre seulement **1.04 s** pour Iceberg. L'architecture d'Iceberg repose sur des `manifests` listant explicitement les chemins des fichiers Parquet : elle contourne le coûteux listing de répertoires sur stockage objet que Delta subit de plein fouet au premier accès.
+   - *Warm (Runs 2 & 3)* : les temps chutent fortement (Delta ~1.2 s, Iceberg ~0.17 s) mais Iceberg reste structurellement plus rapide pour résoudre ses métadonnées.
 
-2. **Filtre (Filter VendorID = 1)** :
-   - *Data Skipping* : Iceberg bat Delta sur les 3 runs (ex: Run 1 à 2.08s contre 2.57s). Iceberg maintient des statistiques (min/max) au niveau du fichier avec une forte granularité, permettant au moteur d'éliminer (pruner) plus efficacement les fichiers non pertinents avant même de devoir les décompresser.
+2. **Filtre (Filter VendorID = 1)** : Iceberg l'emporte sur les 3 runs (Run 1 : **2.94 s** vs **4.47 s**). Ses statistiques min/max au niveau fichier permettent un *data skipping* (pruning) plus agressif.
 
-3. **Agrégation (Group by Passenger Count)** :
-   - *Scan optimisé* : Iceberg est systématiquement le "Plus Rapide 🏆". La récupération ciblée des fichiers et colonnes via le métamodèle Iceberg donne un net avantage (1.34s vs 3.09s au premier run) pour alimenter les tâches de *shuffle* et de *reduce* de Spark.
+3. **Agrégation (Group by Passenger Count)** : Iceberg systématiquement devant (Run 1 : **2.79 s** vs **10.07 s**), grâce à un scan ciblé des fichiers/colonnes utiles avant le *shuffle*.
 
-**Conclusion des Lectures :**
-Apache Iceberg s'est révélé beaucoup plus optimisé pour les charges de lecture analytique sur stockage cloud/objet. Sa conception élimine le besoin de lister les répertoires, ce qui lui confère une avance redoutable par rapport à Delta Lake. *(Prochaine étape du laboratoire : évaluer les temps d'écriture massive et de MERGE/UPDATE).*
+### 3. Écritures ACID (UPDATE / DELETE)
+
+Toujours sur les 26,17 M de lignes, avec modification réelle des données à chaque run :
+
+- **UPDATE** — remplacer `payment_type` par `99 / 100 / 101` sur les **20 925 119 lignes** où `VendorID = 2` :
+  - Résultats très proches (écriture = réécriture de datatiles + commit), Iceberg 87.63 s vs Delta 94.47 s sur le Run 1 (→ 99) ; Delta légèrement devant sur les Runs 2 et 3 (→ 100 / → 101).
+- **DELETE** — supprimer les lignes `payment_type = 4 / 5 / 6` (33 299, puis 2, puis 0 lignes) : Iceberg plus rapide sur les trois runs (ex. Run 1 : **74.97 s** vs **81.63 s**).
+
+**Conclusion :** Apache Iceberg se révèle nettement plus optimisé pour les **charges de lecture analytique** sur stockage objet (avance jusqu'à 19× sur le full scan), et reste globalement devant sur l'écriture ACID, tandis que Delta Lake reste compétitif sur les `UPDATE` à forte volumétrie. Le choix dépend donc du profil de charge dominant.
 
 ## 🛠️ Dépannage
 
