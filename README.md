@@ -304,4 +304,24 @@ RUN pip3 install --no-cache-dir -r /tmp/requirements.txt
 # Installation des JARs Delta Lake et Iceberg
 RUN cd /opt/bitnami/spark/jars/ && \
     curl -O https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar && \
-    curl -O https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-
+    curl -O https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar && \
+    curl -O https://repo1.maven.org/maven2/io/delta/delta-spark_2.12/3.1.0/delta-spark_2.12-3.1.0.jar && \
+    curl -O https://repo1.maven.org/maven2/io/delta/delta-storage/3.1.0/delta-storage-3.1.0.jar && \
+    curl -O https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-3.5_2.12/1.5.0/iceberg-spark-runtime-3.5_2.12-1.5.0.jar
+
+# Retour à l'utilisateur non-root
+USER 1001
+```
+
+## 📸 Galerie / Captures d'écran
+
+![Image 1](imgs/image.png)
+![Image 2](imgs/img2.png)
+![Image 3](imgs/img3.png)
+![Image 4](imgs/img4.png)
+![Image 5](imgs/img5.png)
+![Image 6](imgs/img6.png)
+![Image 7](imgs/img7.png)
+![Image 8](imgs/img8.png)
+![Image 9](imgs/img9.png)
+![Image 10](imgs/img10.png)
